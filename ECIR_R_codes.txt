@@ -1,0 +1,147 @@
+(1) Compute the weights SIGMA in the linear combination.
+
+# s = start time.
+# t = current time.
+# sigma, b are ECIR parameters.
+
+SIGMA = function (s,t,b,sigma) 
+{(1/4)*(sigma^2/b)*(1-exp((s-t)*b))
+}
+
+(2) Compute the CDF of r(t).
+
+# q is the one in P(r(t)<=q).
+
+# r0 is r(0).
+# b, sigma, theta are ECIR parameters.
+# t is the time at which 0.one evaluates r.
+
+install.packages("CompQuadForm")
+library(CompQuadForm)
+CDF_r = function (t,r0,b,sigma,theta,q) 
+{
+theta_sub=theta[1:(t*10)];
+# N is the index of the sequence converging to r(t) in distribution.
+N=length(theta_sub);
+lambda=c(SIGMA(0,t,b,sigma),SIGMA(((1:N)-1)/N*t,t,b,sigma));
+h=c(1,4*theta_sub[1]/sigma^2,4*diff(theta_sub)/sigma^2);
+delta=c(r0*exp(-b*t)/SIGMA(0,t,b,sigma),rep(0,N));
+1-davies(q, lambda, h, delta)$Qq
+}
+
+
+(3) Generate a sequence of CDF of r(t), for q=1/n,...,1.
+
+ 
+# t is the time that r is evaluated.
+# r0 is r(0).
+# b, sigma, theta are ECIR parameters.
+# n is the number of discreted nodes over [0,T].
+
+seq_r = function (t,r0,b,sigma,theta,n) 
+{c=rep(0,n);for (i in 1:n){c[i]=CDF_r(t,r0,b,sigma,theta,i/n)}; c
+}
+
+(4) Price zero-coupon bond P(r(t),t,T).
+
+# r = interest rate
+# t = current date
+# T = Maturity
+# b, sigma, theta are ECIR parameters.
+
+zero_coupon_bond_price = function (x,t,T,b,sigma,theta) 
+{
+u= theta[1:t*10];
+gamma=sqrt(b^2+2*sigma^2)/2;
+l=length(u);
+delta_t=t+(T-t)/l*((1:(l+1)) -1);
+dt = delta_t[2:(l+1)] -delta_t[1:l];
+C=sinh(gamma*(T-t))/(gamma*cosh(gamma*(T-t))+b*sinh(gamma*(T-t))/2);
+B=as.numeric(l);
+for (i in 1:l){
+B[i]=log(gamma*exp(b*dt[i]/2)/(gamma*cosh(gamma*dt[i])+b*sinh(gamma*dt[i])/2));
+};
+A=-sum(B*u)*2/sigma^2;
+exp(-x*C-A);
+}
+
+(5) Price call option V(0).
+
+# tau_M = expiration date
+# T = maturity date
+# M = number of variabtions of CDF
+# r0 = r(0)
+# K = strike price
+# b, sigma, theta are ECIR parameters
+
+call_option = function (tau_M,T,M,r0,b,sigma,theta,K) 
+{P = as.numeric(M);
+for (i in 1:M)
+{P[i] = max(zero_coupon_bond_price(i/M,tau_M,T,b,sigma,theta)-K,0)
+};
+F = seq_r(tau_M,r0,b,sigma,theta,M)
+F = c(F[1],F[2:M]-F[1:(M-1)]);
+sum(P*F)
+}
+
+(6) Simulation of r(t).
+
+# Use inverse CDF approaoch to simulate r(t)
+# M is the number of realizations
+
+sim_r = function (t,r0,b,sigma,theta,n,M) 
+{U=runif(M);
+F = seq_r(t,r0,b,sigma,theta,n);
+l=rep(0,M);
+n = length(F);
+for(j in 1:M){
+for (i in 1:n){if (U[j] >F[i] & U[j]<=F[i+1]){l[j] = i/n}}
+};
+l
+}
+
+(7) Monte Carlo simulation of r(t).
+
+# Use Monte Carlo to simulate n realizations of r(t).
+# At each step t, use max(r(t),0) to replace r(t).
+
+MC_r = function (t,r0,b,sigma,theta,n) 
+{c = rep(0,n);
+s=t*10;
+for (i in 1:n){
+u = r0;
+for (j in 1:(s-1)){u = u+(theta[j]-b*max(u,0))*0.1+sigma*sqrt(max(u,0))*rnorm(1)*0.1}; c[i] = u
+}; c
+}
+
+
+(8) Monte Carlo call option.
+
+MC_call_option = function (tau_M,T,M,r0,b,sigma,theta,K) 
+{
+MC=MC_r(tau_M,r0,b,sigma,theta,M);
+P = as.numeric(M);
+for (i in 1:M)
+{P[i] = max(zero_coupon_bond_price(MC[i],tau_M,T,b,sigma,theta)-K,0)
+};
+mean(P)}
+
+(9) CDF approximation: sequence of call options via number of variations.
+
+# Create the call option values for the number of variations from 1 to L.
+
+seq_call = function (tau_M,T,r0,b,sigma,theta,K, L) 
+{c = as.numeric(L);
+for(i in 1:L){c[i]=call_option(tau_M,T,i,r0,b,sigma,theta,K)};
+c
+}
+
+(10) Monte Carlo: sequence of call options via number of scenarios.
+
+# Create the call option values for the number of scenarios from 1 to L.
+
+seq_call_MC = function (tau_M,T,r0,b,sigma,theta,K,L) 
+{c =as.numeric(L);
+for(i in 1:L){c[i]=MC_call_option(tau_M,T,i,r0,b,sigma,theta,K)}; 
+c
+}
